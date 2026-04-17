@@ -1,281 +1,125 @@
-const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
-const bcrypt = require("bcrypt");
-const session = require("express-session");
-const OpenAI = require("openai");
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials, 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle,
+  REST,
+  Routes,
+  SlashCommandBuilder
+} = require("discord.js");
 
-const app = express();
-const db = new sqlite3.Database("./db.sqlite");
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent
+  ],
+  partials: [Partials.Channel]
 });
 
-app.use(express.json());
+// ===== CONFIG =====
+const APPROVAL_CHANNEL = "1494463006648569989";
+const PARTNER_CHANNEL = "1494487375705931917";
+const STAFF_ROLES = [
+  "1494464393352581222",
+  "1494464501137936435"
+];
 
-app.use(session({
-  secret: "secret",
-  resave: false,
-  saveUninitialized: true
-}));
+// ===== READY + REGISTER COMMAND =====
+client.once("ready", async () => {
+  console.log(`✅ Bot logged in as ${client.user.tag}`);
 
-// ================= DATABASE =================
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("bump")
+      .setDescription("Bump your server!")
+  ].map(cmd => cmd.toJSON());
 
-db.run(`CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
-  username TEXT,
-  password TEXT
-)`);
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-db.run(`CREATE TABLE IF NOT EXISTS bots (
-  id INTEGER PRIMARY KEY,
-  name TEXT,
-  type TEXT,
-  description TEXT,
-  owner_id INTEGER,
-  status TEXT,
-  score INTEGER
-)`);
+  await rest.put(
+    Routes.applicationCommands(client.user.id),
+    { body: commands }
+  );
 
-db.run(`CREATE TABLE IF NOT EXISTS reviews (
-  id INTEGER PRIMARY KEY,
-  bot_id INTEGER,
-  content TEXT
-)`);
-
-// ================= AI =================
-
-async function verifyBot(name, description, type) {
-  const prompt = `
-Check this bot:
-Name: ${name}
-Type: ${type}
-Description: ${description}
-
-Reply JSON:
-{"status":"approved|flagged|rejected","score":1-10}
-`;
-
-  const res = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: [{ role: "user", content: prompt }]
-  });
-
-  return JSON.parse(res.choices[0].message.content);
-}
-
-async function moderateReview(content) {
-  const prompt = `
-Moderate:
-"${content}"
-
-Reply JSON:
-{"status":"approved|flagged|rejected"}
-`;
-
-  const res = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: [{ role: "user", content: prompt }]
-  });
-
-  return JSON.parse(res.choices[0].message.content);
-}
-
-// ================= FRONTEND (INLINE HTML) =================
-
-function page(content) {
-  return `
-  <html>
-  <head>
-    <title>Bot Hub</title>
-    <style>
-      body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
-      input, select, button { margin:5px; padding:10px; border-radius:8px; border:none; }
-      button { background:#6366f1; color:white; cursor:pointer; }
-      .card { background:#1e293b; padding:15px; margin:10px; border-radius:10px; }
-    </style>
-  </head>
-  <body>
-  <h1>🤖 Bot Hub</h1>
-  ${content}
-  </body>
-  </html>
-  `;
-}
-
-// ================= ROUTES =================
-
-// HOME
-app.get("/", (req, res) => {
-  res.send(page(`
-    <a href="/login">Login</a>
-    <a href="/signup">Signup</a>
-  `));
+  console.log("✅ /bump registered!");
 });
 
-// SIGNUP PAGE
-app.get("/signup", (req, res) => {
-  res.send(page(`
-    <h2>Signup</h2>
-    <input id="u" placeholder="Username"><br>
-    <input id="p" type="password" placeholder="Password"><br>
-    <button onclick="go()">Create</button>
+// ===== BUMP COMMAND =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
 
-    <script>
-    async function go(){
-      await fetch("/signup",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:u.value,password:p.value})});
-      location="/dashboard";
-    }
-    </script>
-  `));
+  if (interaction.commandName === "bump") {
+
+    await interaction.reply({ content: "🚀 Bumping...", ephemeral: true });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("🚀 Bump Successful!")
+      .setDescription("🔥 Join this amazing server!")
+      .addFields(
+        { name: "Server", value: interaction.guild.name },
+        { name: "Members", value: `${interaction.guild.memberCount}` }
+      )
+      .setFooter({ text: "Next bump in 2 hours ⏰" });
+
+    await interaction.channel.send({ embeds: [embed] });
+  }
 });
 
-// LOGIN PAGE
-app.get("/login", (req, res) => {
-  res.send(page(`
-    <h2>Login</h2>
-    <input id="u"><br>
-    <input id="p" type="password"><br>
-    <button onclick="go()">Login</button>
+// ===== PARTNERSHIP DM =====
+client.on("messageCreate", async message => {
+  if (message.author.bot) return;
 
-    <script>
-    async function go(){
-      let r = await fetch("/login",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:u.value,password:p.value})});
-      let d = await r.json();
-      if(d.success) location="/dashboard";
-    }
-    </script>
-  `));
+  if (message.channel.type === 1) {
+
+    const embed = new EmbedBuilder()
+      .setTitle("📩 Partnership Request")
+      .setDescription(message.content);
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`approve_${message.author.id}`)
+        .setLabel("Approve")
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(`decline_${message.author.id}`)
+        .setLabel("Decline")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    const channel = client.channels.cache.get(APPROVAL_CHANNEL);
+    channel.send({ embeds: [embed], components: [row] });
+
+    message.reply("✅ Sent for approval!");
+  }
 });
 
-// DASHBOARD
-app.get("/dashboard", (req, res) => {
-  if (!req.session.user) return res.redirect("/login");
+// ===== BUTTONS =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isButton()) return;
 
-  res.send(page(`
-    <h2>Dashboard</h2>
+  const [action, userId] = interaction.customId.split("_");
 
-    <button onclick="logout()">Logout</button>
-    <button onclick="del()">Delete Account</button>
+  const user = await client.users.fetch(userId);
 
-    <h3>Add Bot</h3>
-    <input id="name" placeholder="Bot name">
-    <select id="type">
-      <option>Discord</option>
-      <option>Twitch</option>
-      <option>Telegram</option>
-      <option>WhatsApp</option>
-    </select>
-    <input id="desc" placeholder="Description">
-    <button onclick="add()">Submit</button>
+  if (action === "approve") {
+    await user.send("✅ Approved!");
+    client.channels.cache.get(PARTNER_CHANNEL)
+      .send(`📢 New Partner: <@${userId}>`);
 
-    <h3>All Bots</h3>
-    <div id="bots"></div>
+    await interaction.update({ content: "Approved ✅", components: [] });
+  }
 
-    <script>
-    async function add(){
-      await fetch("/add-bot",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({name:name.value,type:type.value,description:desc.value})});
-      load();
-    }
-
-    async function load(){
-      let r = await fetch("/bots");
-      let data = await r.json();
-      bots.innerHTML = data.map(b => 
-        "<div class='card'>"+b.name+" ("+b.type+") - "+b.status+
-        "<br><input id='r"+b.id+"' placeholder='Review'>" +
-        "<button onclick='rev("+b.id+")'>Send</button></div>"
-      ).join("");
-    }
-
-    async function rev(id){
-      let val = document.getElementById("r"+id).value;
-      await fetch("/add-review",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({botId:id,content:val})});
-    }
-
-    function logout(){ location="/logout"; }
-    async function del(){ await fetch("/delete-account",{method:"POST"}); location="/"; }
-
-    load();
-    </script>
-  `));
+  if (action === "decline") {
+    await user.send("❌ Declined.");
+    await interaction.update({ content: "Declined ❌", components: [] });
+  }
 });
 
-// ================= AUTH =================
-
-app.post("/signup", async (req, res) => {
-  const hash = await bcrypt.hash(req.body.password, 10);
-  db.run("INSERT INTO users (username,password) VALUES (?,?)",
-    [req.body.username, hash],
-    function () {
-      req.session.user = { id: this.lastID };
-      res.json({ success: true });
-    });
-});
-
-app.post("/login", (req, res) => {
-  db.get("SELECT * FROM users WHERE username=?",
-    [req.body.username],
-    async (err, user) => {
-      if (!user) return res.json({ success: false });
-      const ok = await bcrypt.compare(req.body.password, user.password);
-      if (!ok) return res.json({ success: false });
-
-      req.session.user = user;
-      res.json({ success: true });
-    });
-});
-
-app.get("/logout", (req, res) => {
-  req.session.destroy();
-  res.redirect("/");
-});
-
-app.post("/delete-account", (req, res) => {
-  if (!req.session.user) return res.sendStatus(401);
-  db.run("DELETE FROM users WHERE id=?", [req.session.user.id]);
-  req.session.destroy();
-  res.json({ success: true });
-});
-
-// ================= BOTS =================
-
-app.post("/add-bot", async (req, res) => {
-  if (!req.session.user) return res.sendStatus(401);
-
-  const ai = await verifyBot(req.body.name, req.body.description, req.body.type);
-
-  if (ai.status === "rejected") return res.json({ success: false });
-
-  db.run(`INSERT INTO bots (name,type,description,owner_id,status,score)
-    VALUES (?,?,?,?,?,?)`,
-    [req.body.name, req.body.type, req.body.description, req.session.user.id, ai.status, ai.score]);
-
-  res.json({ success: true });
-});
-
-app.get("/bots", (req, res) => {
-  db.all("SELECT * FROM bots", [], (err, rows) => res.json(rows));
-});
-
-// ================= REVIEWS =================
-
-app.post("/add-review", async (req, res) => {
-  if (!req.session.user) return res.sendStatus(401);
-
-  const ai = await moderateReview(req.body.content);
-  if (ai.status === "rejected") return res.json({ success: false });
-
-  db.run("INSERT INTO reviews (bot_id,content) VALUES (?,?)",
-    [req.body.botId, req.body.content]);
-
-  res.json({ success: true });
-});
-
-// ================= START =================
-
-app.listen(3000, () => console.log("Running on port 3000"));
+client.login(process.env.TOKEN);
