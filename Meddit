@@ -1,0 +1,287 @@
+{
+  "name": "meddit",
+  "version": "1.0.0",
+  "description": "Reddit-style social platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^9.4.3",
+    "body-parser": "^1.20.2",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "uuid": "^9.0.1"
+  }
+}
+const express = require("express");
+const session = require("express-session");
+const bodyParser = require("body-parser");
+const bcrypt = require("bcrypt");
+const Database = require("better-sqlite3");
+
+const app = express();
+const db = new Database("meddit.db");
+
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+
+app.use(
+  session({
+    secret: "meddit-secret",
+    resave: false,
+    saveUninitialized: false
+  })
+);
+
+app.use(express.static("public"));
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ username TEXT UNIQUE,
+ password TEXT
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ title TEXT,
+ content TEXT,
+ author TEXT,
+ votes INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ postId INTEGER,
+ author TEXT,
+ content TEXT
+);
+`);
+
+app.post("/register", async (req, res) => {
+ const { username, password } = req.body;
+
+ try {
+   const hash = await bcrypt.hash(password, 10);
+
+   db.prepare(
+     "INSERT INTO users(username,password) VALUES(?,?)"
+   ).run(username, hash);
+
+   res.json({ success: true });
+ } catch {
+   res.json({ success: false });
+ }
+});
+
+app.post("/login", async (req, res) => {
+ const { username, password } = req.body;
+
+ const user = db
+   .prepare("SELECT * FROM users WHERE username=?")
+   .get(username);
+
+ if (!user) {
+   return res.json({ success: false });
+ }
+
+ const valid = await bcrypt.compare(password, user.password);
+
+ if (!valid) {
+   return res.json({ success: false });
+ }
+
+ req.session.user = username;
+
+ res.json({ success: true });
+});
+
+app.get("/posts", (req, res) => {
+ const posts = db
+   .prepare("SELECT * FROM posts ORDER BY votes DESC")
+   .all();
+
+ res.json(posts);
+});
+
+app.post("/posts", (req, res) => {
+ if (!req.session.user)
+   return res.status(401).json({ error: "Login required" });
+
+ const { title, content } = req.body;
+
+ db.prepare(
+   `
+   INSERT INTO posts(title,content,author)
+   VALUES(?,?,?)
+ `
+ ).run(title, content, req.session.user);
+
+ res.json({ success: true });
+});
+
+app.post("/vote/:id", (req, res) => {
+ db.prepare(
+   `
+   UPDATE posts
+   SET votes = votes + 1
+   WHERE id=?
+ `
+ ).run(req.params.id);
+
+ res.json({ success: true });
+});
+
+app.get("/comments/:postId", (req, res) => {
+ const comments = db
+   .prepare(
+     "SELECT * FROM comments WHERE postId=?"
+   )
+   .all(req.params.postId);
+
+ res.json(comments);
+});
+
+app.post("/comments", (req, res) => {
+ if (!req.session.user)
+   return res.status(401).json({ error: "Login required" });
+
+ const { postId, content } = req.body;
+
+ db.prepare(
+   `
+   INSERT INTO comments(postId,author,content)
+   VALUES(?,?,?)
+ `
+ ).run(postId, req.session.user, content);
+
+ res.json({ success: true });
+});
+
+app.listen(3000, () => {
+ console.log("Meddit running on port 3000");
+});
+<!DOCTYPE html>
+<html>
+<head>
+<title>Meddit</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>🩺 Meddit</h1>
+
+<div class="box">
+  <h2>Register</h2>
+  <input id="regUser" placeholder="Username">
+  <input id="regPass" type="password" placeholder="Password">
+  <button onclick="register()">Register</button>
+</div>
+
+<div class="box">
+  <h2>Login</h2>
+  <input id="loginUser" placeholder="Username">
+  <input id="loginPass" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+</div>
+
+<div class="box">
+  <h2>Create Post</h2>
+  <input id="title" placeholder="Title">
+  <textarea id="content"></textarea>
+  <button onclick="createPost()">Post</button>
+</div>
+
+<div id="posts"></div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
+body{
+ font-family:Arial;
+ max-width:900px;
+ margin:auto;
+ background:#f6f7f8;
+}
+
+.box{
+ background:white;
+ padding:15px;
+ margin:10px;
+ border-radius:10px;
+}
+
+.post{
+ background:white;
+ padding:15px;
+ margin:10px;
+ border-radius:10px;
+}
+async function register() {
+ await fetch("/register", {
+   method: "POST",
+   headers: { "Content-Type": "application/json" },
+   body: JSON.stringify({
+     username: regUser.value,
+     password: regPass.value
+   })
+ });
+}
+
+async function login() {
+ await fetch("/login", {
+   method: "POST",
+   headers: { "Content-Type": "application/json" },
+   body: JSON.stringify({
+     username: loginUser.value,
+     password: loginPass.value
+   })
+ });
+}
+
+async function createPost() {
+ await fetch("/posts", {
+   method: "POST",
+   headers: { "Content-Type": "application/json" },
+   body: JSON.stringify({
+     title: title.value,
+     content: content.value
+   })
+ });
+
+ loadPosts();
+}
+
+async function vote(id) {
+ await fetch("/vote/" + id, {
+   method: "POST"
+ });
+
+ loadPosts();
+}
+
+async function loadPosts() {
+ const posts = await fetch("/posts");
+ const data = await posts.json();
+
+ document.getElementById("posts").innerHTML =
+   data.map(post => `
+     <div class="post">
+       <h3>${post.title}</h3>
+       <p>${post.content}</p>
+       <small>by ${post.author}</small>
+       <br>
+       <button onclick="vote(${post.id})">
+         ▲ ${post.votes}
+       </button>
+     </div>
+   `).join("");
+}
+
+loadPosts();
+npm install
+npm start
