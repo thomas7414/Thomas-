@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  name          String
+  avatar        String?
+  githubId      String?   @unique
+  googleId      String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  projects      Project[]
+  collaborations ProjectCollaborator[]
+  subscription  Subscription?
+  apiKeys       ApiKey[]
+  auditLogs     AuditLog[]
+}
+
+model Project {
+  id            String    @id @default(cuid())
+  name          String
+  description   String?
+  type          String    // website, web-app, ios-app, android-app, api, saas, ai-app, game
+  language      String?   // javascript, python, typescript, etc
+  framework     String?   // react, vue, angular, etc
+  database      String?   // postgres, mongodb, etc
+  status        String    @default("initializing") // initializing, building, deployed, archived
+  
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  collaborators ProjectCollaborator[]
+  files         ProjectFile[]
+  deployments   Deployment[]
+  aiTasks       AITask[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model ProjectCollaborator {
+  id        String    @id @default(cuid())
+  role      String    @default("viewer") // owner, editor, viewer
+  
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  
+  @@unique([projectId, userId])
+}
+
+model ProjectFile {
+  id        String    @id @default(cuid())
+  path      String
+  content   String?
+  language  String?
+  
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Deployment {
+  id        String    @id @default(cuid())
+  status    String    @default("pending") // pending, building, deployed, failed
+  url       String?
+  domain    String?
+  environment String  // staging, production
+  
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model AITask {
+  id        String    @id @default(cuid())
+  agent     String    // frontend-engineer, backend-engineer, etc
+  task      String
+  status    String    @default("pending") // pending, processing, completed, failed
+  result    String?
+  
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Subscription {
+  id        String    @id @default(cuid())
+  plan      String    @default("free") // free, pro-monthly, pro-yearly
+  stripeId  String?   @unique
+  status    String    @default("active") // active, canceled, expired
+  currentPeriodEnd DateTime?
+  
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  key       String    @unique
+  name      String
+  
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+}
+
+model AuditLog {
+  id        String    @id @default(cuid())
+  action    String
+  resource  String
+  resourceId String
+  changes   String?   // JSON stringified changes
+  
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+}
