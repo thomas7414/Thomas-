@@ -1,0 +1,38 @@
+{
+  "name": "opendev",
+  "version": "1.0.0",
+  "description": "AI-Powered Software Development Platform",
+  "main": "apps/backend/server.ts",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "db:migrate": "cd apps/backend && npx prisma migrate dev",
+    "db:studio": "cd apps/backend && npx prisma studio",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "dependencies": {
+    "@stripe/stripe-js": "^2.1.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.1.0",
+    "turbo": "^1.10.0",
+    "typescript": "^5.3.3"
+  },
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend",
+    "packages/ui",
+    "packages/utils",
+    "packages/types"
+  ]
+}
